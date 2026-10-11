@@ -8,6 +8,7 @@ android {
     lint { abortOnError true; warningsAsErrors true }
 }
 dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     testImplementation 'junit:junit:4.13.2'
     // Android supplies org.json at runtime; JVM tests require its real implementation.
     testImplementation 'org.json:json:20240303'

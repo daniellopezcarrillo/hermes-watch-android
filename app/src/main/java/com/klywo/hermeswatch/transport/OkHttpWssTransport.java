@@ -1,0 +1,163 @@
+package com.klywo.hermeswatch.transport;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.URI;
+import java.security.SecureRandom;
+import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+/** Compatibility name only: uses bounded raw RFC 6455 framing, not OkHttp WebSocket. */
+public final class OkHttpWssTransport implements HgTransport {
+    interface Connection {
+        void open(URI endpoint) throws IOException;
+        InputStream input() throws IOException;
+        OutputStream output() throws IOException;
+        void setReadTimeout(int millis) throws IOException;
+        void close();
+    }
+    private static final ScheduledExecutorService DEADLINES=Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t=new Thread(r,"hg-wss-deadline"); t.setDaemon(true); return t;
+    });
+    private final Connection connection;
+    private final SecureRandom random=new SecureRandom();
+    private final ArrayBlockingQueue<Write> writes=new ArrayBlockingQueue<>(32);
+    private Listener listener;
+    private BoundedWssFrames frames;
+    private Thread writer;
+    private boolean used,stopped,opened,closing;
+    private long pending;
+    private ScheduledFuture<?> connectDeadline,closeDeadline;
+    private static final class Write {
+        final int opcode; final byte[] payload; final boolean finish;
+        Write(int opcode,byte[] payload,boolean finish) { this.opcode=opcode; this.payload=payload; this.finish=finish; }
+    }
+    public OkHttpWssTransport() { this(new PrivateWssSocket()); }
+    OkHttpWssTransport(Connection connection) { this.connection=Objects.requireNonNull(connection); }
+    @Override public void connect(String url,Listener target) {
+        URI endpoint=PrivateWssEndpoint.validate(url); Objects.requireNonNull(target);
+        synchronized(this) {
+            if(used) throw new IllegalStateException("Single-use transport");
+            used=true; listener=target;
+            if(stopped) return;
+            connectDeadline=DEADLINES.schedule(() -> finish(true),10000,TimeUnit.MILLISECONDS);
+        }
+        Thread reader=new Thread(() -> receive(endpoint),"hg-wss-reader"); reader.setDaemon(true); reader.start();
+    }
+    private void receive(URI endpoint) {
+        try {
+            connection.open(endpoint);
+            connection.setReadTimeout(10000);
+            InputStream input=connection.input(); OutputStream output=connection.output();
+            BoundedWssHandshake.upgrade(endpoint,input,output,random);
+            // The pinned hub advertises a 20s heartbeat; setup inactivity is too short.
+            // Keep the separate 30s absolute receive deadline, even during partial frames.
+            connection.setReadTimeout(30000);
+            synchronized(this) {
+                if(stopped || closing) return;
+                frames=new BoundedWssFrames(input,output,random);
+                opened=true; connectDeadline.cancel(false);
+                writer=new Thread(this::writeLoop,"hg-wss-writer"); writer.setDaemon(true); writer.start();
+            }
+            listener.onOpen();
+            while(active()) {
+                // Absolute event deadline also bounds slow fragments/control floods and pong writes.
+                ScheduledFuture<?> readDeadline=DEADLINES.schedule(() -> finish(true),30000,TimeUnit.MILLISECONDS);
+                BoundedWssFrames.Event event;
+                try { event=frames.read(); }
+                finally { readDeadline.cancel(false); }
+                if(event.close!=null) { peerClose(event.close); return; }
+                if(deliverable()) listener.onText(event.text);
+            }
+        } catch(IOException | RuntimeException e) { finish(true); }
+    }
+    private synchronized boolean active() { return !stopped; }
+    private synchronized boolean deliverable() { return opened && !closing && !stopped; }
+    private void peerClose(byte[] payload) {
+        synchronized(this) {
+            if(stopped) return;
+            if(closing) { /* Already sent/scheduled close: no second close frame. */ }
+            else {
+                closing=true; startCloseDeadline();
+                if(writes.offer(new Write(8,payload,true))) return;
+            }
+        }
+        finish(false);
+    }
+    private void writeLoop() {
+        try {
+            while(active()) {
+                Write write=writes.take();
+                try {
+                    if(write.opcode==1 && !deliverable()) continue;
+                    ScheduledFuture<?> deadline=DEADLINES.schedule(() -> finish(true),5000,TimeUnit.MILLISECONDS);
+                    try { frames.write(write.opcode,write.payload,0,write.payload.length); }
+                    finally { deadline.cancel(false); }
+                    if(write.finish) { finish(false); return; }
+                } finally {
+                    if(write.opcode==1) synchronized(this) { pending-=write.payload.length; }
+                }
+            }
+        } catch(InterruptedException e) { Thread.currentThread().interrupt(); }
+        catch(IOException | RuntimeException e) { finish(true); }
+    }
+    @Override public boolean send(String text) {
+        byte[] payload;
+        synchronized(this) {
+            if(!opened || stopped || closing) return false;
+            try { payload=BoundedWssFrames.encode(text); } catch(IOException e) { return false; }
+            if(pending>HgSession.MAX_QUEUED_BYTES-payload.length || !writes.offer(new Write(1,payload,false))) return false;
+            pending+=payload.length; return true;
+        }
+    }
+    @Override public synchronized long queuedBytes() { return stopped?0:pending; }
+    @Override public void close(int code,String reason) {
+        byte[] text;
+        try {
+            if(!BoundedWssFrames.validCloseCode(code)) throw new IOException("Invalid close code");
+            text=BoundedWssFrames.encode(reason==null?"":reason);
+            if(text.length>123) throw new IOException("Close reason too long");
+        } catch(IOException e) { cancel(); return; }
+        byte[] payload=new byte[text.length+2]; payload[0]=(byte)(code>>>8); payload[1]=(byte)code;
+        System.arraycopy(text,0,payload,2,text.length);
+        synchronized(this) {
+            if(stopped || closing) return;
+            closing=true;
+            if(opened) {
+                startCloseDeadline();
+                if(writes.offer(new Write(8,payload,false))) return;
+            }
+        }
+        finish(false);
+    }
+    private void startCloseDeadline() {
+        closeDeadline=DEADLINES.schedule(() -> finish(false),HgSession.CLOSE_MS,TimeUnit.MILLISECONDS);
+    }
+    private void finish(boolean failure) {
+        Listener target;
+        synchronized(this) {
+            if(stopped) return;
+            stopped=true; opened=false; target=listener;
+            if(connectDeadline!=null) connectDeadline.cancel(false);
+            if(closeDeadline!=null) closeDeadline.cancel(false);
+            writes.clear(); if(writer!=null) writer.interrupt();
+        }
+        connection.close();
+        if(target!=null) { if(failure) target.onFailure(); else target.onClosed(); }
+    }
+    @Override public void cancel() {
+        synchronized(this) {
+            if(stopped) return;
+            stopped=true; opened=false; writes.clear();
+            if(connectDeadline!=null) connectDeadline.cancel(false);
+            if(closeDeadline!=null) closeDeadline.cancel(false);
+            if(writer!=null) writer.interrupt();
+        }
+        connection.close();
+    }
+}
