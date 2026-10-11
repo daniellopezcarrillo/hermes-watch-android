@@ -32,6 +32,8 @@ public final class OkHttpWssTransport implements HgTransport {
     private Thread writer;
     private boolean used,stopped,opened,closing;
     private long pending;
+    private boolean binaryAllowed;
+    private long uploadEpoch;
     private int workers;
     private boolean cleanupComplete, retirementDelivered;
     private Runnable retirement;
@@ -58,6 +60,8 @@ public final class OkHttpWssTransport implements HgTransport {
     private ScheduledFuture<?> connectDeadline,closeDeadline;
     private static final class Write {
         final int opcode; final byte[] payload; final boolean finish;
+        final java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+        boolean delivered, uploadWrite, closeControl; long epoch;
         Write(int opcode,byte[] payload,boolean finish) { this.opcode=opcode; this.payload=payload; this.finish=finish; }
     }
     public OkHttpWssTransport() { this(new PrivateWssSocket()); }
@@ -87,7 +91,7 @@ public final class OkHttpWssTransport implements HgTransport {
             connection.setReadTimeout(30000);
             synchronized(this) {
                 if(stopped || closing) return;
-                frames=new BoundedWssFrames(input,output,random);
+                frames=new BoundedWssFrames(input,output,random,binaryAllowed);
                 opened=true; connectDeadline.cancel(false);
                 workers++;
                 writer=new Thread(this::writeLoop,"hg-wss-writer"); writer.setDaemon(true);
@@ -102,7 +106,7 @@ public final class OkHttpWssTransport implements HgTransport {
                 try { event=frames.read(); }
                 finally { readDeadline.cancel(false); }
                 if(event.close!=null) { peerClose(event.close); return; }
-                if(deliverable()) listener.onText(event.text);
+                if(deliverable()) { if(event.binary!=null) listener.onBinary(event.binary); else listener.onText(event.text); }
             }
         } catch(IOException | RuntimeException e) { finish(true); }
         finally { workerRetired(); }
@@ -125,13 +129,21 @@ public final class OkHttpWssTransport implements HgTransport {
             while(active()) {
                 Write write=writes.take();
                 try {
-                    if(write.opcode==1 && !deliverable()) continue;
+                    synchronized(this) {
+                        if((write.opcode==1 || write.opcode==2) &&
+                                (stopped || (!write.closeControl && !deliverable()) ||
+                                 (write.uploadWrite && write.epoch!=uploadEpoch))) continue;
+                    }
                     ScheduledFuture<?> deadline=DEADLINES.schedule(() -> finish(true),5000,TimeUnit.MILLISECONDS);
-                    try { frames.write(write.opcode,write.payload,0,write.payload.length); }
+                    try { frames.write(write.opcode,write.payload,0,write.payload.length); write.delivered=true; }
                     finally { deadline.cancel(false); }
                     if(write.finish) { finish(false); return; }
                 } finally {
-                    if(write.opcode==1) synchronized(this) { pending-=write.payload.length; }
+                    synchronized(this) {
+                        if(write.opcode==1 || write.opcode==2) pending-=write.payload.length;
+                        notifyAll();
+                    }
+                    write.done.countDown();
                 }
             }
         } catch(InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -147,7 +159,81 @@ public final class OkHttpWssTransport implements HgTransport {
             pending+=payload.length; return true;
         }
     }
+    @Override public synchronized void allowBinary(boolean enabled) {
+        if(used) throw new IllegalStateException("Capabilities fixed before connect"); binaryAllowed=enabled;
+    }
+    @Override public boolean sendAndWait(String text,long timeoutMillis) {
+        try { return enqueueAndWait(1,BoundedWssFrames.encode(text),timeoutMillis); }
+        catch(IOException e) { return false; }
+    }
+    @Override public boolean sendBinaryAndWait(byte[] bytes,long timeoutMillis) {
+        try { BoundedWssFrames.validateAudio(bytes,bytes==null?0:bytes.length); }
+        catch(IOException e) { return false; }
+        synchronized(this) { if(!binaryAllowed) return false; }
+        return enqueueAndWait(2,bytes.clone(),timeoutMillis);
+    }
+    private boolean enqueueAndWait(int opcode,byte[] payload,long timeoutMillis) {
+        if(timeoutMillis<=0 || timeoutMillis>15000) return false;
+        long deadline=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        Write write=new Write(opcode,payload,false);
+        synchronized(this) {
+            write.uploadWrite=true; write.epoch=uploadEpoch;
+            while(opened && !stopped && !closing && write.epoch==uploadEpoch) {
+                if(Thread.currentThread().isInterrupted()) return false;
+                if(pending<=HgSession.MAX_QUEUED_BYTES-4096-payload.length && writes.remainingCapacity()>2) {
+                    writes.add(write); pending+=payload.length; break;
+                }
+                long remaining=deadline-System.nanoTime(); if(remaining<=0) return false;
+                try { TimeUnit.NANOSECONDS.timedWait(this,remaining); }
+                catch(InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+            }
+            if(!opened || stopped || closing || write.epoch!=uploadEpoch) return false;
+        }
+        try {
+            long remaining=deadline-System.nanoTime();
+            if(remaining>0 && write.done.await(remaining,TimeUnit.NANOSECONDS)) return write.delivered;
+        } catch(InterruptedException e) { Thread.currentThread().interrupt(); }
+        synchronized(this) {
+            if(writes.remove(write)) { pending-=payload.length; write.done.countDown(); notifyAll(); }
+        }
+        return false;
+    }
+    @Override public synchronized void dropPendingBinary() {
+        uploadEpoch++;
+        for(Write write:writes.toArray(new Write[0])) if(write.uploadWrite && writes.remove(write)) {
+            pending-=write.payload.length; write.done.countDown();
+        }
+        notifyAll();
+    }
+    private void discardWrites() {
+        Write write; while((write=writes.poll())!=null) {
+            if(write.opcode==1 || write.opcode==2) pending-=write.payload.length;
+            write.done.countDown();
+        }
+    }
     @Override public synchronized long queuedBytes() { return stopped?0:pending; }
+    @Override public boolean closeAfterControls(String first, String second) {
+        final Write audioCancel, cancel;
+        try {
+            audioCancel=new Write(1,BoundedWssFrames.encode(first),false);
+            cancel=new Write(1,BoundedWssFrames.encode(second),false);
+        } catch(IOException e) { cancel(); return false; }
+        synchronized(this) {
+            if(!opened || stopped || closing) return false;
+            // Atomically stop upload admission and reserve the ordered terminal batch.
+            // Only a native write already executing may precede these controls.
+            uploadEpoch++;
+            discardWrites();
+            closing=true;
+            audioCancel.closeControl=cancel.closeControl=true;
+            writes.add(audioCancel); writes.add(cancel);
+            pending+=audioCancel.payload.length+cancel.payload.length;
+            writes.add(new Write(8,new byte[]{3,(byte)232},false));
+            startCloseDeadline();
+            notifyAll();
+            return true;
+        }
+    }
     @Override public void close(int code,String reason) {
         byte[] text;
         try {
@@ -177,7 +263,7 @@ public final class OkHttpWssTransport implements HgTransport {
             stopped=true; opened=false; target=listener;
             if(connectDeadline!=null) connectDeadline.cancel(false);
             if(closeDeadline!=null) closeDeadline.cancel(false);
-            writes.clear(); if(writer!=null) writer.interrupt();
+            discardWrites(); notifyAll(); if(writer!=null) writer.interrupt();
         }
         try {
             connection.close();
@@ -190,7 +276,7 @@ public final class OkHttpWssTransport implements HgTransport {
     @Override public void cancel() {
         synchronized(this) {
             if(stopped) return;
-            stopped=true; opened=false; writes.clear();
+            stopped=true; opened=false; discardWrites(); notifyAll();
             if(connectDeadline!=null) connectDeadline.cancel(false);
             if(closeDeadline!=null) closeDeadline.cancel(false);
             if(writer!=null) writer.interrupt();

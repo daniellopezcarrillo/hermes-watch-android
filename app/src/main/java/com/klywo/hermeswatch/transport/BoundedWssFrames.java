@@ -14,6 +14,9 @@ import java.security.SecureRandom;
 /** RFC 6455 text-only framing. Lengths are checked before reading or allocating payloads. */
 final class BoundedWssFrames {
     static final int MAX_MESSAGE = 65536;
+    static final int MAX_BINARY = 4100;
+    private final boolean binaryAllowed;
+    private int messageOpcode;
     private final InputStream input;
     private final OutputStream output;
     private final SecureRandom random;
@@ -23,12 +26,17 @@ final class BoundedWssFrames {
     private boolean fragmented;
 
     BoundedWssFrames(InputStream input, OutputStream output, SecureRandom random) {
-        this.input=input; this.output=output; this.random=random;
+        this(input,output,random,false);
+    }
+    BoundedWssFrames(InputStream input, OutputStream output, SecureRandom random, boolean binaryAllowed) {
+        this.input=input; this.output=output; this.random=random; this.binaryAllowed=binaryAllowed;
     }
     static final class Event {
         final String text;
         final byte[] close;
-        Event(String text, byte[] close) { this.text=text; this.close=close; }
+        final byte[] binary;
+        Event(String text, byte[] close) { this(text,close,null); }
+        Event(String text, byte[] close, byte[] binary) { this.text=text; this.close=close; this.binary=binary; }
     }
     Event read() throws IOException {
         while (true) {
@@ -36,7 +44,7 @@ final class BoundedWssFrames {
             boolean fin=(first&128)!=0;
             int opcode=first&15;
             // Binary/extension/invalid opcodes rejected without consuming length or payload.
-            if ((first&112)!=0 || !(opcode==0 || opcode==1 || opcode==8 || opcode==9 || opcode==10))
+            if ((first&112)!=0 || !(opcode==0 || opcode==1 || (opcode==2 && binaryAllowed) || opcode==8 || opcode==9 || opcode==10))
                 throw new IOException("Unsupported frame");
             boolean isControl=opcode>=8;
             if (isControl && !fin) throw new IOException("Fragmented control");
@@ -57,7 +65,8 @@ final class BoundedWssFrames {
                 }
                 if (length<65536) throw new IOException("Noncanonical length");
             }
-            if (!isControl && length>MAX_MESSAGE-size) throw new IOException("Message exceeds bound");
+            if (!isControl && opcode!=0) messageOpcode=opcode;
+            if (!isControl && length>(messageOpcode==2?MAX_BINARY:MAX_MESSAGE)-size) throw new IOException("Message exceeds bound");
             int n=(int)length;
             if (isControl) {
                 exact(control,0,n);
@@ -77,11 +86,20 @@ final class BoundedWssFrames {
                 exact(message,size,n); size+=n;
                 fragmented=!fin;
                 if (fin) {
+                    if(messageOpcode==2) {
+                        validateAudio(message,size);
+                        byte[] binary=java.util.Arrays.copyOf(message,size); size=0;
+                        return new Event(null,null,binary);
+                    }
                     String text=decode(message,0,size); size=0;
                     return new Event(text,null);
                 }
             }
         }
+    }
+    static void validateAudio(byte[] bytes,int length) throws IOException {
+        if(bytes==null || length<6 || length>MAX_BINARY || (length&1)!=0 || bytes[0]!=1)
+            throw new IOException("Invalid channel audio");
     }
     static boolean validCloseCode(int code) {
         return (code>=1000 && code<=1014 && code!=1004 && code!=1005 && code!=1006)
@@ -104,6 +122,10 @@ final class BoundedWssFrames {
         } catch (CharacterCodingException e) { throw new IOException("Invalid UTF-16",e); }
     }
     synchronized void write(int opcode,byte[] bytes,int start,int length) throws IOException {
+        if(opcode==2) {
+            if(start!=0) throw new IOException("Invalid binary offset");
+            validateAudio(bytes,length);
+        }
         if (length<0 || length>MAX_MESSAGE || (opcode>=8 && length>125))
             throw new IOException("Invalid outbound size");
         output.write(128|opcode);

@@ -21,6 +21,16 @@ public final class HgSession {
     private final KeyProvider keys;
     private final Clock clock;
     private final Observer observer;
+    public enum VoiceState { IDLE, UPLOADING, AWAITING_TURN, PROCESSING, RECEIVING_AUDIO, DRAINING, POST_TURN }
+    public static final long VOICE_MS=90000, TTS_GRACE_MS=5000;
+    private final boolean voiceEnabled;
+    private final com.klywo.hermeswatch.voice.PlaybackBuffer playback=new com.klywo.hermeswatch.voice.PlaybackBuffer();
+    private VoiceState voiceState=VoiceState.IDLE;
+    private int nextStream=1;
+    private boolean voiceRequest, turnEnded, audioStarted, playbackDrained;
+    private long turnEndedAt, audioAt;
+    private com.klywo.hermeswatch.voice.ClipUpload upload;
+    private Thread uploadWorker;
     private State state = State.NEW;
     private byte[] key;
     private boolean enroll, closing;
@@ -28,6 +38,10 @@ public final class HgSession {
     private String requestId, serverTurn, serverSession;
 
     public HgSession(HgTransport transport, KeyProvider keys, Clock clock, Observer observer) {
+        this(transport,keys,clock,observer,false);
+    }
+    public HgSession(HgTransport transport, KeyProvider keys, Clock clock, Observer observer, boolean voiceEnabled) {
+        this.voiceEnabled=voiceEnabled;
         this.transport=Objects.requireNonNull(transport); this.keys=Objects.requireNonNull(keys);
         this.clock=Objects.requireNonNull(clock); this.observer=Objects.requireNonNull(observer);
     }
@@ -41,10 +55,11 @@ public final class HgSession {
         HgV1Codec.deviceId(supplied); key=supplied.clone(); enroll=explicitlyEnroll;
         state=State.CONNECTING; startedAt=lastRx=clock.nowMillis();
         try {
+            transport.allowBinary(voiceEnabled);
             transport.connect(url,new HgTransport.Listener() {
                 public void onOpen() { opened(); }
                 public void onText(String frame) { received(frame); }
-                public void onBinary(byte[] frame) { failed(); }
+                public void onBinary(byte[] frame) { receivedBinary(frame); }
                 public void onClosed() { retired(); }
                 public void onFailure() { failed(); }
             });
@@ -53,7 +68,10 @@ public final class HgSession {
     private synchronized void opened() {
         if (state==State.CLOSED) return;
         if (state!=State.CONNECTING) { failed(); return; }
-        state=State.CHALLENGE; send(HgV1Codec.hello(key));
+        state=State.CHALLENGE;
+        String hello=HgV1Codec.hello(key);
+        if(voiceEnabled) hello=hello.substring(0,hello.length()-1)+",\"caps\":{\"mic\":{\"rate\":16000,\"format\":\"pcm16\"},\"speaker\":{\"rate\":16000,\"format\":\"pcm16\"}}}";
+        send(hello);
     }
     private synchronized void received(String frame) {
         if (state==State.CLOSED) return;
@@ -81,30 +99,139 @@ public final class HgSession {
                     state=State.READY; emit("state",null); return;
                 case "unpaired":
                     if(state!=State.READY) { failed(); return; }
+                    if(voiceRequest) { cancelVoice(); return; }
                     clearTurn(); state=State.PENDING; emit("state",null); return;
                 case "pairing":
                     if(state!=State.PENDING) { failed(); return; }
                     emit(type,o); return;
                 case "notice": case "status": emit(type,o); return;
+                case "audio.start": case "audio.end": case "audio.abort":
+                    audioControl(frame,o,type); return;
                 case "turn.start": case "turn.end": case "reply": case "reply.delta": case "transcript":
                     if(state!=State.READY) { failed(); return; }
                     // Bind only at start, to this connection's session and exact request suffix.
                     if(requestId==null) return;
+                    if(voiceRequest && type.equals("transcript")) {
+                        if(!turnEnded && (voiceState==VoiceState.AWAITING_TURN || voiceState==VoiceState.PROCESSING)) emit(type,o);
+                        return;
+                    }
                     String incomingTurn=o.optString("turn",null);
                     if(type.equals("turn.start")) {
                         if(serverTurn==null) {
                             if(!(serverSession+":"+requestId).equals(incomingTurn)) return;
                             serverTurn=incomingTurn;
+                            if(voiceRequest && !audioStarted) voiceState=VoiceState.PROCESSING;
                         } else {
                             if(!serverTurn.equals(incomingTurn)) return;
                             failed(); return; // A duplicate start must not rebind an active turn.
                         }
                     } else if(serverTurn==null || !serverTurn.equals(incomingTurn)) return;
-                    if(type.equals("turn.end")) clearTurn();
+                    if(type.equals("turn.end")) {
+                        if(voiceRequest) {
+                            turnEnded=true; turnEndedAt=clock.nowMillis();
+                            if(!audioStarted) voiceState=VoiceState.POST_TURN;
+                            completeVoiceIfDrained();
+                        } else clearTurn();
+                    }
                     emit(type,o); return;
                 default: failed(); // Audio and extensions intentionally unsupported in this text slice.
             }
         } catch (IllegalArgumentException | org.json.JSONException e) { failed(); }
+    }
+    public synchronized VoiceState voiceState() { return voiceState; }
+    /** Returns immediately. A single worker owns pacing and bounded transport waits. */
+    public synchronized String startVoice(byte[] pcm) {
+        if(!voiceEnabled || state!=State.READY || requestId!=null || uploadWorker!=null || nextStream>255)
+            throw new IllegalStateException("Voice not ready");
+        if(pcm==null || pcm.length<8000 || pcm.length>320000 || (pcm.length&1)!=0)
+            throw new IllegalArgumentException("Invalid completed PCM16 clip");
+        String id=UUID.randomUUID().toString();
+        final com.klywo.hermeswatch.voice.ClipUpload producer=new com.klywo.hermeswatch.voice.ClipUpload(id,nextStream++,pcm);
+        requestId=id; serverTurn=null; voiceRequest=true; turnEnded=false; audioStarted=false; playbackDrained=false;
+        turnAt=clock.nowMillis(); voiceState=VoiceState.UPLOADING; upload=producer;
+        uploadWorker=new Thread(() -> pumpUpload(producer,id),"hg-voice-upload");
+        uploadWorker.setDaemon(true); uploadWorker.start(); emit("voice.uploading",null); return id;
+    }
+    private void pumpUpload(com.klywo.hermeswatch.voice.ClipUpload producer,String id) {
+        long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(15), pace=System.nanoTime();
+        try {
+            while(true) {
+                com.klywo.hermeswatch.voice.ClipUpload.Event event;
+                synchronized(this) { if(!voiceRequest || !id.equals(requestId)) return; event=producer.next(); }
+                if(event==null) break;
+                long remaining=java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline-System.nanoTime());
+                if(remaining<=0) throw new IllegalStateException("Upload deadline");
+                boolean accepted=event.binary==null ? transport.sendAndWait(event.text,Math.min(5000,remaining))
+                        : transport.sendBinaryAndWait(event.binary,Math.min(5000,remaining));
+                if(!accepted) throw new IllegalStateException("Upload rejected");
+                if(event.binary!=null) {
+                    pace=Math.max(pace,System.nanoTime());
+                    pace+=java.util.concurrent.TimeUnit.MILLISECONDS.toNanos((event.binary.length-4)*1000L/32000);
+                    long wait=pace-System.nanoTime(); if(wait>0) java.util.concurrent.TimeUnit.NANOSECONDS.sleep(wait);
+                }
+            }
+            synchronized(this) {
+                if(voiceRequest && id.equals(requestId)) { upload=null; uploadWorker=null;
+                    if(voiceState==VoiceState.UPLOADING) voiceState=VoiceState.AWAITING_TURN;
+                    emit("voice.uploaded",null);
+                }
+            }
+        } catch(InterruptedException e) { Thread.currentThread().interrupt(); }
+        catch(RuntimeException e) { synchronized(this) { if(id.equals(requestId)) cancelVoice(); } }
+        finally { producer.cancel(); }
+    }
+    private synchronized void receivedBinary(byte[] bytes) {
+        if(state==State.CLOSED) return;
+        if(!voiceEnabled || state!=State.READY) { failed(); return; }
+        if(bytes==null || bytes.length<6 || bytes.length>4100 || (bytes.length&1)!=0 || bytes[0]!=1) { failed(); return; }
+        if(!voiceRequest || !audioStarted) return;
+        com.klywo.hermeswatch.voice.PlaybackBuffer.Result r=playback.accept(bytes);
+        if(r==com.klywo.hermeswatch.voice.PlaybackBuffer.Result.ABORTED) { emit("voice.audio_failed",null); cancelVoice(); }
+        else if(r==com.klywo.hermeswatch.voice.PlaybackBuffer.Result.ACCEPTED) { lastRx=audioAt=clock.nowMillis(); emit("audio.available",null); }
+    }
+    private void audioControl(String wire,JSONObject o,String type) {
+        if(!voiceEnabled || state!=State.READY) { failed(); return; }
+        if(type.equals("audio.start")) {
+            if(!voiceRequest || !(serverSession+":"+requestId).equals(o.optString("turn",null))) {
+                emit("voice.compatibility",null); return;
+            }
+            if(audioStarted || o.optInt("rate")!=16000 || (turnEnded && clock.nowMillis()-turnEndedAt>=TTS_GRACE_MS)) { cancelVoice(); return; }
+            audioStarted=true; playbackDrained=false; audioAt=clock.nowMillis(); voiceState=VoiceState.RECEIVING_AUDIO;
+        } else if(!voiceRequest || !audioStarted) return;
+        com.klywo.hermeswatch.voice.PlaybackBuffer.Result r=playback.control(wire);
+        if(r==com.klywo.hermeswatch.voice.PlaybackBuffer.Result.DROPPED) return;
+        if(r==com.klywo.hermeswatch.voice.PlaybackBuffer.Result.ABORTED) {
+            emit("audio.abort",o); cancelVoice(); return;
+        }
+        if(!type.equals("audio.start")) voiceState=VoiceState.DRAINING;
+        audioAt=clock.nowMillis(); emit(type,o);
+    }
+    /** PCM consumption is not native audible-drain evidence. */
+    public synchronized int drainPlaybackInto(byte[] destination,int offset,int length) {
+        return playback.drainInto(destination,offset,length);
+    }
+    public synchronized void markPlaybackDrained() {
+        if(!voiceRequest || !audioStarted || playback.state()!=com.klywo.hermeswatch.voice.PlaybackBuffer.State.ENDED)
+            throw new IllegalStateException("Playback has not ended");
+        playbackDrained=true; emit("audio.drained",null); completeVoiceIfDrained();
+    }
+    private void completeVoiceIfDrained() {
+        if(turnEnded && audioStarted && playbackDrained) { clearTurn(); emit("voice.complete",null); }
+    }
+    private boolean cancelVoice() {
+        int stream=nextStream-1;
+        clearTurn();
+        // Logical termination is immediate. The transport owns the bounded ordered
+        // write barrier; never wait for native I/O while holding the session monitor.
+        terminal(); closeAt=clock.nowMillis(); closing=true;
+        boolean accepted;
+        try {
+            transport.dropPendingBinary();
+            accepted=transport.closeAfterControls("{\"type\":\"audio.cancel\",\"stream\":"+stream+"}",
+                    "{\"type\":\"cancel\"}");
+        } catch(RuntimeException e) { accepted=false; }
+        if(!accepted) { closing=false; transport.cancel(); }
+        emit("closed",null); return accepted;
     }
     public synchronized String sendText(String text) {
         if(state!=State.READY || requestId!=null) throw new IllegalStateException("Not ready or turn active");
@@ -119,6 +246,7 @@ public final class HgSession {
     }
     public synchronized boolean cancelTurn() {
         if(state!=State.READY || requestId==null) return false;
+        if(voiceRequest) return cancelVoice();
         clearTurn(); return send("{\"type\":\"cancel\"}");
     }
     /** Caller must tick regularly, including during the close grace period. No scheduler is owned. */
@@ -132,7 +260,15 @@ public final class HgSession {
         if((state==State.CONNECTING || state==State.CHALLENGE || state==State.AUTHENTICATING)
                 && now-startedAt>=HANDSHAKE_MS) { failed(); return; }
         if((state==State.PENDING || state==State.READY) && now-lastRx>=heartbeatMs*3) { failed(); return; }
-        if(requestId!=null && now-turnAt>=TURN_MS) { cancelTurn(); emit("turn.timeout",null); }
+        if(voiceRequest) {
+            if(now-turnAt>=VOICE_MS || (audioStarted && !playbackDrained && now-audioAt>=10000)) {
+                cancelVoice(); emit("voice.timeout",null); return;
+            }
+            if(turnEnded && !audioStarted && now-turnEndedAt>=TTS_GRACE_MS) {
+                emit("voice.no_audio",null); cancelVoice(); return;
+            }
+        }
+        if(requestId!=null && !voiceRequest && now-turnAt>=TURN_MS) { cancelTurn(); emit("turn.timeout",null); }
     }
     private boolean send(String frame) {
         long bytes=frame.getBytes(StandardCharsets.UTF_8).length;
@@ -147,7 +283,12 @@ public final class HgSession {
     private void emit(String type, JSONObject frame) {
         try { observer.onEvent(type,frame); } catch(RuntimeException e) { failed(); }
     }
-    private void clearTurn() { requestId=null; serverTurn=null; }
+    private void clearTurn() {
+        requestId=null; serverTurn=null; voiceRequest=false; voiceState=VoiceState.IDLE;
+        if(upload!=null) { upload.cancel(); upload=null; }
+        if(uploadWorker!=null) { uploadWorker.interrupt(); uploadWorker=null; }
+        playback.cancel();
+    }
     private void wipeKey() { if(key!=null) { Arrays.fill(key,(byte)0); key=null; } enroll=false; }
     private void terminal() { state=State.CLOSED; clearTurn(); serverSession=null; wipeKey(); }
     private synchronized void failed() {

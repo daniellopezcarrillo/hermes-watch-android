@@ -41,7 +41,8 @@ def main():
     classes = tooling / "interop-classes"
     classes.mkdir(exist_ok=True)
     src = ROOT / "app/src/main/java/com/klywo/hermeswatch"
-    sources = sorted((src / "protocol").glob("*.java")) + [src / "transport" / (name + ".java") for name in ["HgTransport", "HgSession", "PrivateWssEndpoint"]] + [ROOT / "scripts/interop/InteropHarness.java"]
+    # HgSession owns pure voice state even when this harness selects text-only mode.
+    sources = sorted((src / "protocol").glob("*.java")) + sorted((src / "voice").glob("*.java")) + [src / "transport" / (name + ".java") for name in ["HgTransport", "HgSession", "PrivateWssEndpoint"]] + [ROOT / "scripts/interop/InteropHarness.java"]
     run([javac_bin, "-cp", json_jar, "-d", classes, *sources])
     # New store per run, shared ONLY by enrollment and the subsequent HMAC reconnect.
     with tempfile.TemporaryDirectory(prefix="interop-store-", dir=tooling) as store:
