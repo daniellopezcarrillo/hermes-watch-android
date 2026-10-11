@@ -35,24 +35,31 @@ final class NativeWebRtcSmoke implements WebRtcSmokeCoordinator.Handle {
     private static void check(WebRtcSmokeCoordinator.Cancellation cancellation) throws InterruptedException {
         if (cancellation.cancelled()) throw new InterruptedException();
     }
-    @Override public void run(WebRtcSmokeCoordinator.Cancellation cancellation) throws Exception {
+    @Override public void run(WebRtcSmokeCoordinator.Cancellation cancellation,
+                              WebRtcSmokeCoordinator.Tracker tracker) throws Exception {
+        tracker.stage(WebRtcSmokeCoordinator.Stage.CAPABILITIES);
         check(cancellation);
         if (WebRtcCapabilities.runtimeStatus() != WebRtcCapabilities.Status.SUPPORTED) throw new IllegalStateException();
+        tracker.stage(WebRtcSmokeCoordinator.Stage.FACTORY_INIT);
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context)
                 .setEnableInternalTracer(false).createInitializationOptions());
         nativeLoaded = true; evidence = Evidence.NATIVE_LOADED; check(cancellation);
+        tracker.stage(WebRtcSmokeCoordinator.Stage.AUDIO_CREATE);
         audio = JavaAudioDeviceModule.builder(context).setEnableVolumeLogger(false)
                 .setUseHardwareAcousticEchoCanceler(false).setUseHardwareNoiseSuppressor(false)
                 .createAudioDeviceModule();
+        tracker.stage(WebRtcSmokeCoordinator.Stage.AUDIO_CONFIGURE);
         audio.setAudioRecordEnabled(false); // Disable real AudioRecord, even if permission is already granted.
         audio.setMicrophoneMute(true); audio.setSpeakerMute(true);
         check(cancellation);
+        tracker.stage(WebRtcSmokeCoordinator.Stage.FACTORY_CREATE);
         PeerConnectionFactory.Options options = new PeerConnectionFactory.Options();
         options.disableNetworkMonitor = true;
         options.networkIgnoreMask = PeerConnectionFactory.Options.ADAPTER_TYPE_ANY;
         factory = PeerConnectionFactory.builder().setOptions(options).setAudioDeviceModule(audio)
                 .createPeerConnectionFactory();
         if (factory == null) throw new IllegalStateException(); check(cancellation);
+        tracker.stage(WebRtcSmokeCoordinator.Stage.PEER_CREATE);
         PeerConnection.RTCConfiguration config = new PeerConnection.RTCConfiguration(Collections.emptyList());
         config.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
         config.iceTransportsType = PeerConnection.IceTransportsType.NONE;
@@ -61,12 +68,15 @@ final class NativeWebRtcSmoke implements WebRtcSmokeCoordinator.Handle {
         if (peer == null) throw new IllegalStateException(); check(cancellation);
         peer.setAudioRecording(false); peer.setAudioPlayout(false);
         // No source/track/capture: receive-only audio section plus a local events data channel.
+        tracker.stage(WebRtcSmokeCoordinator.Stage.TRANSCEIVER_ADD);
         if (peer.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
                 new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)) == null)
             throw new IllegalStateException();
         check(cancellation);
+        tracker.stage(WebRtcSmokeCoordinator.Stage.CHANNEL_CREATE);
         channel = peer.createDataChannel("oai-events", new DataChannel.Init());
         if (channel == null) throw new IllegalStateException(); check(cancellation);
+        tracker.stage(WebRtcSmokeCoordinator.Stage.OFFER_CREATE);
         CountDownLatch completed = new CountDownLatch(1);
         AtomicBoolean validOffer = new AtomicBoolean();
         AtomicBoolean accepting = new AtomicBoolean(true);

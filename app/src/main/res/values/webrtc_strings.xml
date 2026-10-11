@@ -15,4 +15,14 @@
     <string name="webrtc_unsupported">This API or ABI is not an eligible packaging candidate. Native compatibility is not assumed.</string>
     <string name="webrtc_device">Android %1$s · API %2$d\nDevice: %3$s %4$s\nDevice ABIs: %5$s\nPackaged ABIs: %6$s</string>
     <string name="webrtc_evidence">Observed: nativeLoaded=%1$s · localOfferCreated=%2$s · factoryDisposed=%3$s · audioModuleReleased=%4$s</string>
+    <string name="webrtc_evidence_none">Observed: no run recorded yet.</string>
+    <string name="webrtc_result_stage">Stage: %1$s</string>
+    <string name="webrtc_result_failure">Failure: %1$s</string>
+    <string name="webrtc_explain_linkage">Native linkage failure: the packaged library or a referenced class does not match this device/ABI/ROM. Nothing was captured or sent; real-device confirmation is required.</string>
+    <string name="webrtc_explain_audio">Audio-module stage failed. This device/ROM may not provide the native audio module (AudioRecord/AudioTrack/AudioEffect). No microphone was opened and nothing was sent; real-device confirmation is required.</string>
+    <string name="webrtc_explain_state">A native step returned an unusable state. No microphone, network or SDP was used.</string>
+    <string name="webrtc_explain_interrupted">The test was cancelled or its soft deadline expired before finishing. Cleanup is pending or already done.</string>
+    <string name="webrtc_explain_null">A native step returned null. No call, audio capture or connectivity was attempted.</string>
+    <string name="webrtc_explain_runtime">An unspecified runtime failure occurred in a native step. No raw error or SDP is shown.</string>
+    <string name="webrtc_explain_unsupported">This API or ABI is not an eligible packaging candidate; the native test is not attempted.</string>
 </resources>

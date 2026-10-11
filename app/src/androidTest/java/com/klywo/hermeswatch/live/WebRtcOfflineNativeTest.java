@@ -29,10 +29,13 @@ public final class WebRtcOfflineNativeTest extends Instrumentation {
             require(smoke.nativeLoaded && smoke.localOfferCreated && smoke.factoryDisposed && smoke.audioReleased);
             require(smoke.evidence == NativeWebRtcSmoke.Evidence.FACTORY_DISPOSED);
             require(AdmissionGate.processWide().available());
-            result.putString("offlineNativeGate", "PASS: local offer and cleanup only; no call proven");
+            result.putString("offlineNativeGate", "PASS: stage=" + coordinator.stage().name()
+                    + " failure=" + coordinator.failure().name() + "; local offer and cleanup only; no call proven");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError | LinkageError ignored) {
-            result.putString("offlineNativeGate", "FAIL: unsupported, native failure or cleanup timeout; no raw SDP/error");
+            // Safe codes only: the exact failing stage on the watch, never a raw message or SDP.
+            result.putString("offlineNativeGate", "FAIL: stage=" + coordinator.stage().name()
+                    + " failure=" + coordinator.failure().name() + "; no raw SDP/error");
             finish(Activity.RESULT_CANCELED, result);
         } finally { coordinator.pause(); worker.shutdown(); }
     }

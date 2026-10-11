@@ -15,4 +15,14 @@
     <string name="webrtc_unsupported">Esta API o ABI no es candidata según el empaquetado. No se presupone compatibilidad nativa.</string>
     <string name="webrtc_device">Android %1$s · API %2$d\nDispositivo: %3$s %4$s\nABI del dispositivo: %5$s\nABI empaquetadas: %6$s</string>
     <string name="webrtc_evidence">Observado: nativeLoaded=%1$s · localOfferCreated=%2$s · factoryDisposed=%3$s · audioModuleReleased=%4$s</string>
+    <string name="webrtc_evidence_none">Observado: aún no hay ninguna ejecución registrada.</string>
+    <string name="webrtc_result_stage">Etapa: %1$s</string>
+    <string name="webrtc_result_failure">Fallo: %1$s</string>
+    <string name="webrtc_explain_linkage">Fallo de enlace nativo: la librería empaquetada o una clase referenciada no coincide con este dispositivo/ABI/ROM. No se capturó ni se envió nada; se requiere confirmación en el dispositivo real.</string>
+    <string name="webrtc_explain_audio">Falló la etapa del módulo de audio. Puede que este dispositivo/ROM no ofrezca el módulo de audio nativo (AudioRecord/AudioTrack/AudioEffect). No se abrió el micrófono ni se envió nada; se requiere confirmación en el dispositivo real.</string>
+    <string name="webrtc_explain_state">Un paso nativo devolvió un estado inutilizable. No se usó micrófono, red ni SDP.</string>
+    <string name="webrtc_explain_interrupted">La prueba se canceló o su plazo lógico expiró antes de terminar. La liberación está pendiente o ya hecha.</string>
+    <string name="webrtc_explain_null">Un paso nativo devolvió null. No se intentó llamada, captura de audio ni conectividad.</string>
+    <string name="webrtc_explain_runtime">Ocurrió un fallo de ejecución sin especificar en un paso nativo. No se muestran errores nativos ni SDP.</string>
+    <string name="webrtc_explain_unsupported">Esta API o ABI no es candidata según el empaquetado; no se intenta la prueba nativa.</string>
 </resources>
