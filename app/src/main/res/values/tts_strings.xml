@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tts_launch">Server voice test</string>
+    <string name="tts_title">Server voice · test playback</string>
+    <string name="tts_probe">Probe server voice</string>
+    <string name="tts_play">Play test</string>
+    <string name="tts_stop">Stop</string>
+    <string name="tts_scope">Server-generated sample only. No microphone and no Codex. The server address is the private WSS endpoint already saved on this watch; only its host is reused on the fixed service port. Audio is written to a temporary cache file and deleted when you pause, stop or leave. This screen reports actual network bytes and local playback state; it does not prove the sound was heard.</string>
+    <string name="tts_status_idle">Ready. Press “Probe server voice” to request the sample.</string>
+    <string name="tts_working">Contacting the server: challenge, authentication and bounded download.</string>
+    <string name="tts_playing">Playback started locally. This is not proof the audio was heard.</string>
+    <string name="tts_cancelling">Stopping. Waiting for native cleanup before another attempt.</string>
+    <string name="tts_done">Playback finished locally. Bytes below are what the server delivered.</string>
+    <string name="tts_cancelled">Stopped. A new attempt requires an explicit press.</string>
+    <string name="tts_focus_lost">Stopped because another app took audio focus. No auto-resume.</string>
+    <string name="tts_timeout">Soft deadline reached. Cleanup must finish before another attempt.</string>
+    <string name="tts_blocked">Another operation is active or retiring. No new worker is admitted.</string>
+    <string name="tts_bytes">Server bytes received: %1$d</string>
+    <string name="tts_problem_endpoint">No valid private server address is saved. Set it in the text connection screen.</string>
+    <string name="tts_problem_identity">The saved watch identity could not be opened. Nothing was created or replaced.</string>
+    <string name="tts_problem_dns">The server name does not resolve to a private address. Nothing was contacted.</string>
+    <string name="tts_problem_challenge">The server challenge failed or was rejected.</string>
+    <string name="tts_problem_audio">The audio response was missing, oversized, the wrong type or the wrong length.</string>
+    <string name="tts_problem_focus">Audio focus was denied or lost before playback.</string>
+    <string name="tts_problem_prepare">The player could not prepare the sample. No audible result is claimed.</string>
+    <string name="tts_problem_generic">The server voice test failed. No provider details are shown.</string>
+</resources>

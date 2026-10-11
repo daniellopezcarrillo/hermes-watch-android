@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tts_launch">Prueba de voz del servidor</string>
+    <string name="tts_title">Voz del servidor · reproducción de prueba</string>
+    <string name="tts_probe">Probar voz del servidor</string>
+    <string name="tts_play">Reproducir prueba</string>
+    <string name="tts_stop">Detener</string>
+    <string name="tts_scope">Solo una muestra generada en el servidor. Sin micrófono y sin Codex. La dirección del servidor es el extremo WSS privado ya guardado en este reloj; solo se reutiliza su host en el puerto de servicio fijo. El audio se escribe en un archivo temporal de caché y se borra al pausar, detener o salir. Esta pantalla informa los bytes de red reales y el estado local de reproducción; no demuestra que el sonido se haya escuchado.</string>
+    <string name="tts_status_idle">Listo. Pulsa «Probar voz del servidor» para pedir la muestra.</string>
+    <string name="tts_working">Contactando con el servidor: desafío, autenticación y descarga acotada.</string>
+    <string name="tts_playing">Reproducción iniciada localmente. No es prueba de que el audio se haya escuchado.</string>
+    <string name="tts_cancelling">Deteniendo. Se espera la liberación nativa antes de otro intento.</string>
+    <string name="tts_done">Reproducción terminada localmente. Los bytes de abajo son lo que entregó el servidor.</string>
+    <string name="tts_cancelled">Detenido. Un nuevo intento requiere pulsar de nuevo.</string>
+    <string name="tts_focus_lost">Detenido porque otra aplicación tomó el foco de audio. Sin reanudación automática.</string>
+    <string name="tts_timeout">Se alcanzó el plazo lógico. La limpieza debe terminar antes de otro intento.</string>
+    <string name="tts_blocked">Otra operación está activa o retirándose. No se admite otro trabajador.</string>
+    <string name="tts_bytes">Bytes recibidos del servidor: %1$d</string>
+    <string name="tts_problem_endpoint">No hay una dirección privada válida guardada. Configúrala en la pantalla de conexión de texto.</string>
+    <string name="tts_problem_identity">No se pudo abrir la identidad guardada del reloj. No se creó ni reemplazó nada.</string>
+    <string name="tts_problem_dns">El nombre del servidor no resuelve a una dirección privada. No se contactó a nadie.</string>
+    <string name="tts_problem_challenge">El desafío del servidor falló o fue rechazado.</string>
+    <string name="tts_problem_audio">La respuesta de audio faltó, era demasiado grande, de tipo incorrecto o longitud incorrecta.</string>
+    <string name="tts_problem_focus">El foco de audio fue denegado o se perdió antes de reproducir.</string>
+    <string name="tts_problem_prepare">El reproductor no pudo preparar la muestra. No se afirma ningún resultado audible.</string>
+    <string name="tts_problem_generic">La prueba de voz del servidor falló. No se muestran detalles del proveedor.</string>
+</resources>

@@ -45,4 +45,18 @@ public final class PrivateWssEndpoint {
         }
         return b.length==16 && (a&254)==252; // IPv6 ULA; not loopback/link-local/global.
     }
+
+    /**
+     * Resolves a validated hostname and requires every address to be private.
+     * This is the only DNS lookup performed here; it prevents a private-looking
+     * name from resolving to a public address before any connection is opened.
+     */
+    public static void requireResolvablePrivate(String host) {
+        if(host==null || host.isEmpty()) throw new IllegalArgumentException("Invalid host");
+        try {
+            InetAddress[] addresses=InetAddress.getAllByName(host);
+            if(addresses.length==0) throw new IllegalArgumentException("Unresolved host");
+            for(InetAddress address:addresses) if(!isPrivate(address)) throw new IllegalArgumentException("Nonprivate address");
+        } catch(UnknownHostException e) { throw new IllegalArgumentException("DNS failure"); }
+    }
 }

@@ -106,6 +106,8 @@ public final class MainActivity extends Activity {
                 new android.content.Intent(this, com.klywo.hermeswatch.live.WebRtcDiagnosticsActivity.class)));
         button(content, "Open Hermes text connection", () -> startActivity(
                 new android.content.Intent(this, ConnectionActivity.class)));
+        button(content, getString(R.string.tts_launch), () -> startActivity(
+                new android.content.Intent(this, ServerTtsActivity.class)));
         text(content, "App " + BuildConfig.VERSION_NAME + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                 + "\nABI: " + String.join(", ", Build.SUPPORTED_ABIS) + "\nDevice: " + Build.MANUFACTURER + " " + Build.MODEL, 16);
         text(content, "Foreground local audio only. No audio upload, files, sign-in or secrets. Leaving this screen discards the clip (best-effort memory clearing).", 16);
