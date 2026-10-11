@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="webrtc_launch">Diagnóstico WebRTC sin conexión</string>
+    <string name="webrtc_title">WebRTC nativo · prueba local</string>
+    <string name="webrtc_scope">Prueba local y explícita. Sin micrófono, altavoz, cámara, inicio de sesión, proveedor, señalización ni conexión de red. Crea una oferta de audio de solo recepción y un canal de eventos; después libera los recursos. No demuestra que una llamada funcione.</string>
+    <string name="webrtc_start">Ejecutar prueba nativa local</string>
+    <string name="webrtc_cancel">Cancelar · esperar liberación nativa</string>
+    <string name="webrtc_idle">Listo. No se ejecuta nada hasta pulsar Ejecutar.</string>
+    <string name="webrtc_running">Prueba local en curso. Plazo lógico: 12 segundos. JNI puede bloquearse durante más tiempo.</string>
+    <string name="webrtc_cancelling">Cancelado o plazo agotado. Esperando la liberación nativa; no se permiten reintentos aún.</string>
+    <string name="webrtc_success">Oferta local creada; fábrica liberada. Carga nativa verificada solo en este dispositivo. No se ha demostrado llamada, captura de audio ni conectividad.</string>
+    <string name="webrtc_failure">La prueba nativa local falló. No se muestran errores nativos ni SDP. Verifica el dispositivo y la ABI antes de reintentar.</string>
+    <string name="webrtc_cancelled">Cancelado; la liberación ha terminado. Para otra prueba debes pulsar Ejecutar.</string>
+    <string name="webrtc_blocked">Esperando que termine la operación anterior del proceso. No se admite otro trabajador.</string>
+    <string name="webrtc_unsupported">Esta API o ABI no es candidata según el empaquetado. No se presupone compatibilidad nativa.</string>
+    <string name="webrtc_device">Android %1$s · API %2$d\nDispositivo: %3$s %4$s\nABI del dispositivo: %5$s\nABI empaquetadas: %6$s</string>
+    <string name="webrtc_evidence">Observado: nativeLoaded=%1$s · localOfferCreated=%2$s · factoryDisposed=%3$s · audioModuleReleased=%4$s</string>
+</resources>

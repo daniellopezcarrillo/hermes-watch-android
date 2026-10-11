@@ -102,6 +102,8 @@ public final class MainActivity extends Activity {
             });
         }
         text(content, "Hermes Watch Diagnostic", 22);
+        button(content, getString(R.string.webrtc_launch), () -> startActivity(
+                new android.content.Intent(this, com.klywo.hermeswatch.live.WebRtcDiagnosticsActivity.class)));
         button(content, "Open Hermes text connection", () -> startActivity(
                 new android.content.Intent(this, ConnectionActivity.class)));
         text(content, "App " + BuildConfig.VERSION_NAME + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT

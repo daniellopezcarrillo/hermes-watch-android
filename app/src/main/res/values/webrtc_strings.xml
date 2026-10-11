@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="webrtc_launch">Offline WebRTC diagnostic</string>
+    <string name="webrtc_title">Native WebRTC · local smoke test</string>
+    <string name="webrtc_scope">Explicit local test only. No microphone, speaker, camera, sign-in, provider, signaling or network connection. Creates a receive-only audio offer and an events data channel, then disposes resources. This does not prove a call works.</string>
+    <string name="webrtc_start">Run local native test</string>
+    <string name="webrtc_cancel">Cancel · wait for native cleanup</string>
+    <string name="webrtc_idle">Ready. Nothing runs until you press Run.</string>
+    <string name="webrtc_running">Running locally. Soft deadline: 12 seconds. Native JNI may block longer.</string>
+    <string name="webrtc_cancelling">Cancelled or deadline reached. Waiting for native cleanup; retries remain blocked.</string>
+    <string name="webrtc_success">Local offer created; factory disposed. Native loading verified on this device only. No call, audio capture or connectivity proven.</string>
+    <string name="webrtc_failure">Local native test failed. No raw native error or SDP is shown. Check this device and ABI before retrying.</string>
+    <string name="webrtc_cancelled">Cancelled; cleanup returned. A new test requires an explicit press.</string>
+    <string name="webrtc_blocked">Waiting for a previous process operation to retire. No new worker is admitted.</string>
+    <string name="webrtc_unsupported">This API or ABI is not an eligible packaging candidate. Native compatibility is not assumed.</string>
+    <string name="webrtc_device">Android %1$s · API %2$d\nDevice: %3$s %4$s\nDevice ABIs: %5$s\nPackaged ABIs: %6$s</string>
+    <string name="webrtc_evidence">Observed: nativeLoaded=%1$s · localOfferCreated=%2$s · factoryDisposed=%3$s · audioModuleReleased=%4$s</string>
+</resources>
