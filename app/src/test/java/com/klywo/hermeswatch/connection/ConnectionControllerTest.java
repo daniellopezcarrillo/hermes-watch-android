@@ -15,6 +15,9 @@ public class ConnectionControllerTest {
         public long queuedBytes() { return 0; }
         public void close(int code, String reason) { }
         public void cancel() { cancels++; }
+        Runnable retirement;
+        public void whenRetired(Runnable completion) { retirement = completion; }
+        void retired() { if (retirement != null) retirement.run(); }
     }
     static class Fixture {
         Fake transport = new Fake(); long now; Runnable tick; int creates, loads;
@@ -52,6 +55,39 @@ public class ConnectionControllerTest {
             transport.listener.onText("{\"type\":\"welcome\",\"session\":\"s\",\"proto\":1,\"paired\":true,\"heartbeat_s\":20}");
             drain();
         }
+    }
+    @Test public void freshIdentityUnknownEnrollmentRecoversOnlyAfterActualRetirement() {
+        AdmissionGate gate = new AdmissionGate();
+        java.util.ArrayDeque<Runnable> queue = new java.util.ArrayDeque<>();
+        List<Fake> transports = new ArrayList<>();
+        final int[] creates = {0};
+        ConnectionController c = new ConnectionController(gate, queue::add, task -> () -> {}, () -> 0,
+            new ConnectionController.Identity() {
+                public byte[] create() { creates[0]++; return new byte[32]; }
+                public byte[] load() { return new byte[32]; }
+            }, () -> { Fake f = new Fake(); transports.add(f); return f; }, view -> {});
+        c.resume(); c.createIdentity(true);
+        while (!queue.isEmpty()) queue.remove().run();
+        c.connect("wss://100.64.0.1/gadget", false);
+        while (!queue.isEmpty()) queue.remove().run();
+        Fake first = transports.get(0); first.listener.onOpen();
+        first.listener.onText("{\"type\":\"challenge\",\"nonce\":\"AAECAwQFBgcICQoLDA0ODw==\",\"enrolled\":false}");
+        while (!queue.isEmpty()) queue.remove().run();
+        assertFalse(c.snapshot().connected); assertFalse(gate.available());
+        c.connect("wss://100.64.0.1/gadget", true);
+        while (!queue.isEmpty()) queue.remove().run();
+        assertEquals(1, transports.size()); // Cancellation alone never admits a replacement.
+        first.retired();
+        while (!queue.isEmpty()) queue.remove().run();
+        assertTrue("Retired transport must restore owner controls", gate.available());
+        assertTrue(c.snapshot().status.contains("first enrollment"));
+        c.connect("wss://100.64.0.1/gadget", true);
+        while (!queue.isEmpty()) queue.remove().run();
+        assertEquals(2, transports.size()); assertEquals(1, creates[0]);
+        first.retired(); assertFalse(gate.available()); // Stale completion cannot release new lease.
+        Fake second = transports.get(1); second.listener.onOpen();
+        second.listener.onText("{\"type\":\"challenge\",\"nonce\":\"AAECAwQFBgcICQoLDA0ODw==\",\"enrolled\":false}");
+        assertTrue(second.sent.get(1).contains("\"key\""));
     }
     @Test public void queuedUnpairedThenPairedReleasesAbandonedTurn() throws Exception {
         QueuedFixture f = new QueuedFixture(); f.ready();
@@ -136,6 +172,26 @@ public class ConnectionControllerTest {
             identity,() -> replacement,view -> {});
         second.resume(); second.loadIdentity(); second.connect("wss://100.64.0.1/gadget",false);
         assertNull(replacement.listener); assertFalse(second.snapshot().identityReady);
+        transport.retired(); assertTrue(gate.available());
+        second.loadIdentity(); second.connect("wss://100.64.0.1/gadget",false);
+        assertNotNull(replacement.listener); assertFalse(gate.available());
+        transport.retired(); assertFalse(gate.available());
+    }
+    @Test public void destroyedOwnerStillReleasesOnlyAfterRetirementWhenExecutorRejectsCallbacks() {
+        AdmissionGate gate=new AdmissionGate(); Fake transport=new Fake();
+        final boolean[] stopped={false};
+        ConnectionController c=new ConnectionController(gate, task -> {
+            if(stopped[0]) throw new java.util.concurrent.RejectedExecutionException();
+            task.run();
+        },task -> () -> {},() -> 0,new ConnectionController.Identity() {
+            public byte[] create() { return new byte[32]; }
+            public byte[] load() { return new byte[32]; }
+        },() -> transport,view -> {});
+        c.resume(); c.loadIdentity(); c.connect("wss://100.64.0.1/gadget",false);
+        c.destroy(); stopped[0]=true; assertFalse(gate.available());
+        transport.retired(); assertTrue(gate.available());
+        AdmissionGate.Lease replacement=gate.acquire();
+        transport.retired(); assertFalse(gate.available()); replacement.retire();
     }
     @Test public void keystoreRuntimeFailureDoesNotRegenerateOrConnect() {
         Fake transport=new Fake(); final int[] creates={0};

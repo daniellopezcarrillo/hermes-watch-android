@@ -81,6 +81,62 @@ public class OkHttpWssTransportTest {
             peer.write(ascii(response));peer.flush();
         }
     }
+    @Test public void cancellationDoesNotRetireBlockedNativeOpen() throws Exception {
+        CountDownLatch entered=new CountDownLatch(1), release=new CountDownLatch(1), retired=new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger completions=new java.util.concurrent.atomic.AtomicInteger();
+        OkHttpWssTransport.Connection blocked=new OkHttpWssTransport.Connection() {
+            public void open(URI endpoint) throws IOException {
+                entered.countDown();
+                try { release.await(); } catch(InterruptedException e) { throw new IOException(e); }
+                throw new IOException("Native DNS returned after cancellation");
+            }
+            public void setReadTimeout(int millis) { }
+            public InputStream input() { throw new AssertionError(); }
+            public OutputStream output() { throw new AssertionError(); }
+            public void close() { } // Socket cancellation cannot make native DNS return.
+        };
+        Listener listener=new Listener(); OkHttpWssTransport transport=new OkHttpWssTransport(blocked);
+        transport.whenRetired(() -> { completions.incrementAndGet(); retired.countDown(); });
+        try {
+            transport.connect(URL,listener); assertTrue(entered.await(2,TimeUnit.SECONDS));
+            transport.cancel(); transport.cancel();
+            assertFalse(retired.await(100,TimeUnit.MILLISECONDS));
+            assertEquals(1,listener.terminal.getCount());
+        } finally { release.countDown(); }
+        assertTrue(retired.await(2,TimeUnit.SECONDS)); assertEquals(1,completions.get());
+        transport.cancel(); assertEquals(1,completions.get());
+    }
+    @Test public void retirementWaitsForBlockedWriterDespiteReaderClosure() throws Exception {
+        FakeConnection c=new FakeConnection(); Listener listener=new Listener();
+        CountDownLatch entered=new CountDownLatch(1), release=new CountDownLatch(1), retired=new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean upgraded=new java.util.concurrent.atomic.AtomicBoolean();
+        OkHttpWssTransport.Connection blocked=new OkHttpWssTransport.Connection() {
+            public void open(URI endpoint) { }
+            public void setReadTimeout(int millis) { if(millis==30000) upgraded.set(true); }
+            public InputStream input() { return c.input; }
+            public OutputStream output() { return new OutputStream() {
+                public void write(int b) throws IOException {
+                    if(upgraded.get()) {
+                        entered.countDown();
+                        boolean interrupted=false;
+                        while(true) try { release.await(); break; } catch(InterruptedException e) { interrupted=true; }
+                        if(interrupted) Thread.currentThread().interrupt();
+                        throw new IOException("Blocked native write returned");
+                    }
+                    c.output.write(b);
+                }
+            }; }
+            public void close() { c.close(); }
+        };
+        OkHttpWssTransport transport=new OkHttpWssTransport(blocked); transport.whenRetired(retired::countDown);
+        try {
+            transport.connect(URL,listener); c.upgrade(""); assertTrue(listener.open.await(2,TimeUnit.SECONDS));
+            assertTrue(transport.send("{}")); assertTrue(entered.await(2,TimeUnit.SECONDS));
+            transport.cancel(); assertTrue(c.closed);
+            assertFalse(retired.await(100,TimeUnit.MILLISECONDS));
+        } finally { release.countDown(); }
+        assertTrue(retired.await(2,TimeUnit.SECONDS));
+    }
     @Test public void adapterOpensDeliversTextAndAcknowledgesRemoteCloseMasked() throws Exception {
         FakeConnection c=new FakeConnection(); Listener l=new Listener(); OkHttpWssTransport t=new OkHttpWssTransport(c);
         t.connect(URL,l); c.upgrade(""); assertTrue(l.open.await(2,TimeUnit.SECONDS));

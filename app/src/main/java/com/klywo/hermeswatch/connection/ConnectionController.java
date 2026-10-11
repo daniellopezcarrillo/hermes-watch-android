@@ -95,6 +95,17 @@ public final class ConnectionController {
                 if (!current(token)) { lease.retire(); lease=null; return; }
                 final byte[] supplied=key;
                 transport=transports.get();
+                final AdmissionGate.Lease owned=lease;
+                transport.whenRetired(() -> {
+                    // Independent of owner lifetime: only this exact transport's lease is released.
+                    owned.retire();
+                    try { worker.execute(() -> {
+                        if(lease!=owned) return;
+                        lease=null; attempted=false;
+                        if(session==null) status=recoveryStatus(false);
+                        publish();
+                    }); } catch(java.util.concurrent.RejectedExecutionException destroyed) { /* Lease already retired. */ }
+                });
                 session=new HgSession(transport, () -> supplied, clock,
                     (type, frame) -> {
                         if(!current(token)) return;
@@ -108,11 +119,11 @@ public final class ConnectionController {
                     }); }
                     catch(java.util.concurrent.RejectedExecutionException retired) { tickQueued.set(false); }
                 });
-                // HgTransport has no native-worker retirement API. Never admit another
-                // connection in this process after handing work to it; DNS may outlive cancel.
+                // Admission remains held until the transport proves native worker retirement.
                 attempted=true;
                 session.connect(url,enrollmentConfirmed);
-                status="Connecting. System TLS verification is required.";
+                if(session!=null && session.state()==HgSession.State.CLOSED) retire();
+                else if(session!=null) status="Connecting. System TLS verification is required.";
             } catch(Exception failure) {
                 status="Connection unavailable. No identity was regenerated.";
                 if (!attempted && lease!=null) { lease.retire(); lease=null; }
@@ -177,7 +188,12 @@ public final class ConnectionController {
             session=null; transport=null;
         }
         code=""; turnActive=false; turn="";
-        status=attempted?"Disconnected. Restart the app process before another connection; native retirement is not observable.":"Disconnected. Load an identity explicitly to continue.";
+        status=recoveryStatus(attempted);
+    }
+    private String recoveryStatus(boolean retiring) {
+        return "Disconnected. " + (retiring ? "Waiting for connection cleanup before retry. " : "Ready for an explicit retry. ")
+            + "If this device is new to the gateway, select first enrollment and confirm gateway trust. "
+            + "Otherwise check the endpoint, network, TLS and enrollment with your administrator. No identity was replaced.";
     }
     private void publish() {
         boolean connected=session!=null && session.state()!=HgSession.State.CLOSED;

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connection_endpoint_label">Dirección del servidor</string>
+    <string name="connection_endpoint_hint">URL WSS privada</string>
+    <string name="connection_endpoint_help">Solicite la dirección a su administrador. No introduzca contraseñas ni tokens de acceso. Solo se guarda esta dirección en el reloj.</string>
+    <string name="connection_message_hint">Escriba un mensaje</string>
+    <string name="connection_connect">Conectar</string>
+    <string name="connection_register">¿Primera vez en este servidor?</string>
+    <string name="connection_settings">Ajustes del servidor</string>
+    <string name="connection_disconnect">Desconectar</string>
+    <string name="connection_endpoint_invalid">Introduzca una dirección privada wss:// sin credenciales, consulta ni fragmento.</string>
+    <string name="connection_consent_title">¿Registrar este reloj?</string>
+    <string name="connection_consent_body">Servidor: %1$s\n\nContinúe solo si confía en este servidor. El registro envía la clave de autenticación del reloj mediante TLS verificado. Un administrador debe aprobar la vinculación.</string>
+    <string name="connection_cancel">Cancelar</string>
+    <string name="connection_consent_action">Confiar y registrar</string>
+    <string name="connection_create_title">Configure este reloj</string>
+    <string name="connection_create_body">No se encontró una identidad guardada. Cree una para identificar este reloj de forma segura.</string>
+    <string name="connection_create">Crear identidad del reloj</string>
+    <string name="connection_identity_error">Identidad no disponible</string>
+    <string name="connection_identity_error_body">No se pudo abrir la identidad guardada. No se ha reemplazado. Reintente o solicite ayuda a su administrador.</string>
+    <string name="connection_retry">Reintentar cargar identidad</string>
+    <string name="connection_endpoint_title">Elija su servidor</string>
+    <string name="connection_endpoint_body">Introduzca la dirección privada del servidor proporcionada por su administrador.</string>
+    <string name="connection_save">Guardar dirección del servidor</string>
+    <string name="connection_ready">Listo para conectar</string>
+    <string name="connection_ready_body">Conecte al servidor guardado. Si este reloj nunca se ha registrado allí, elija la opción de primera conexión.</string>
+    <string name="connection_retry_body">Sin conexión. Revise la dirección, la red y el servidor con su administrador y reintente. Registre el reloj solo si es nuevo para ese servidor.</string>
+    <string name="connection_waiting">Conectando…</string>
+    <string name="connection_waiting_body">Esperando al servidor. Puede desconectar en cualquier momento.</string>
+    <string name="connection_pair_title">Autorice este reloj</string>
+    <string name="connection_pair_body">Entregue este código a su administrador. Espere aquí mientras autoriza este reloj en el servidor.</string>
+    <string name="connection_paired">Conectado</string>
+    <string name="connection_paired_body">Este reloj está vinculado. Envíe un mensaje de texto.</string>
+    <string name="connection_send">Enviar mensaje</string>
+    <string name="connection_working">Espere</string>
+    <string name="connection_working_body">Comprobando este reloj o finalizando la operación anterior.</string>
+    <string name="connection_code">Código: %1$s</string>
+    <string name="connection_cancel_settings">Cancelar cambios</string>
+    <string name="connection_response_hint">Las respuestas aparecen aquí.</string>
+    <string name="connection_response_waiting">Esperando una respuesta…</string>
+    <string name="connection_response_progress">Recibiendo una respuesta…</string>
+    <string name="connection_response_done">Respuesta completa</string>
+    <string name="connection_response_timeout">No se recibió una respuesta a tiempo. Puede reintentar.</string>
+    <string name="connection_send_error">Mensaje no enviado. Introduzca entre 1 y 4000 caracteres y espere la respuesta actual.</string>
+    <string name="connection_response_status">Se recibió una actualización del servidor</string>
+</resources>

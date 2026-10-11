@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connection_endpoint_label">Server address</string>
+    <string name="connection_endpoint_hint">Private WSS URL</string>
+    <string name="connection_endpoint_help">Ask your administrator for the address. Do not enter passwords or access tokens. Only this address is saved on this watch.</string>
+    <string name="connection_message_hint">Write a message</string>
+    <string name="connection_connect">Connect</string>
+    <string name="connection_register">First time on this server?</string>
+    <string name="connection_settings">Server settings</string>
+    <string name="connection_disconnect">Disconnect</string>
+    <string name="connection_endpoint_invalid">Enter a private wss:// address without credentials, query or fragment.</string>
+    <string name="connection_consent_title">Register this watch?</string>
+    <string name="connection_consent_body">Server: %1$s\n\nOnly continue if you trust this server. Registration sends this watch’s authentication key over verified TLS. An administrator must still approve pairing.</string>
+    <string name="connection_cancel">Cancel</string>
+    <string name="connection_consent_action">Trust and register</string>
+    <string name="connection_create_title">Set up this watch</string>
+    <string name="connection_create_body">No saved identity was found. Create one to identify this watch securely.</string>
+    <string name="connection_create">Create watch identity</string>
+    <string name="connection_identity_error">Identity unavailable</string>
+    <string name="connection_identity_error_body">The saved identity could not be opened. It has not been replaced. Retry or ask your administrator for help.</string>
+    <string name="connection_retry">Retry loading identity</string>
+    <string name="connection_endpoint_title">Choose your server</string>
+    <string name="connection_endpoint_body">Enter the private server address provided by your administrator.</string>
+    <string name="connection_save">Save server address</string>
+    <string name="connection_ready">Ready to connect</string>
+    <string name="connection_ready_body">Connect to your saved server. If this watch has never registered there, choose the first-time option below.</string>
+    <string name="connection_retry_body">Not connected. Check the address, network and server with your administrator, then retry. Register only if this watch is new to that server.</string>
+    <string name="connection_waiting">Connecting…</string>
+    <string name="connection_waiting_body">Waiting for the server. You can disconnect at any time.</string>
+    <string name="connection_pair_title">Approve this watch</string>
+    <string name="connection_pair_body">Give this code to your administrator. Wait here while they approve this watch on the server.</string>
+    <string name="connection_paired">Connected</string>
+    <string name="connection_paired_body">This watch is paired. Send a text message.</string>
+    <string name="connection_send">Send message</string>
+    <string name="connection_working">Please wait</string>
+    <string name="connection_working_body">Checking this watch or finishing the previous operation.</string>
+    <string name="connection_code">Code: %1$s</string>
+    <string name="connection_cancel_settings">Cancel changes</string>
+    <string name="connection_response_hint">Replies appear here.</string>
+    <string name="connection_response_waiting">Waiting for a reply…</string>
+    <string name="connection_response_progress">Receiving a reply…</string>
+    <string name="connection_response_done">Reply complete</string>
+    <string name="connection_response_timeout">No reply received in time. You can try again.</string>
+    <string name="connection_send_error">Message not sent. Enter 1–4000 characters and wait for the current reply.</string>
+    <string name="connection_response_status">Server update received</string>
+</resources>

@@ -14,4 +14,8 @@ public interface HgTransport {
     long queuedBytes();
     void close(int code, String reason);
     void cancel();
+    /** Completion only after all native DNS/I/O and cleanup have returned. Never a cancel acknowledgement.
+     * Unsupported implementations conservatively keep admission closed. Register before connect. */
+    default void whenRetired(Runnable completion) { }
+
 }

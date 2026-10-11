@@ -32,6 +32,29 @@ public final class OkHttpWssTransport implements HgTransport {
     private Thread writer;
     private boolean used,stopped,opened,closing;
     private long pending;
+    private int workers;
+    private boolean cleanupComplete, retirementDelivered;
+    private Runnable retirement;
+    @Override public void whenRetired(Runnable completion) {
+        synchronized(this) {
+            if(retirement!=null) throw new IllegalStateException("Retirement observer already registered");
+            retirement=Objects.requireNonNull(completion);
+        }
+        notifyRetirement();
+    }
+    private void notifyRetirement() {
+        Runnable completion;
+        synchronized(this) {
+            if(!stopped || !cleanupComplete || workers!=0 || retirementDelivered || retirement==null) return;
+            retirementDelivered=true; completion=retirement;
+        }
+        completion.run();
+    }
+    private void workerRetired() {
+        synchronized(this) { workers--; }
+        notifyRetirement();
+    }
+
     private ScheduledFuture<?> connectDeadline,closeDeadline;
     private static final class Write {
         final int opcode; final byte[] payload; final boolean finish;
@@ -46,8 +69,12 @@ public final class OkHttpWssTransport implements HgTransport {
             used=true; listener=target;
             if(stopped) return;
             connectDeadline=DEADLINES.schedule(() -> finish(true),10000,TimeUnit.MILLISECONDS);
+            // Reserve before publication/start so cancellation cannot report retirement early.
+            workers++;
+            Thread reader=new Thread(() -> receive(endpoint),"hg-wss-reader"); reader.setDaemon(true);
+            try { reader.start(); }
+            catch(RuntimeException | Error failure) { workers--; finish(true); throw failure; }
         }
-        Thread reader=new Thread(() -> receive(endpoint),"hg-wss-reader"); reader.setDaemon(true); reader.start();
     }
     private void receive(URI endpoint) {
         try {
@@ -62,7 +89,10 @@ public final class OkHttpWssTransport implements HgTransport {
                 if(stopped || closing) return;
                 frames=new BoundedWssFrames(input,output,random);
                 opened=true; connectDeadline.cancel(false);
-                writer=new Thread(this::writeLoop,"hg-wss-writer"); writer.setDaemon(true); writer.start();
+                workers++;
+                writer=new Thread(this::writeLoop,"hg-wss-writer"); writer.setDaemon(true);
+                try { writer.start(); }
+                catch(RuntimeException | Error failure) { workers--; throw failure; }
             }
             listener.onOpen();
             while(active()) {
@@ -75,6 +105,7 @@ public final class OkHttpWssTransport implements HgTransport {
                 if(deliverable()) listener.onText(event.text);
             }
         } catch(IOException | RuntimeException e) { finish(true); }
+        finally { workerRetired(); }
     }
     private synchronized boolean active() { return !stopped; }
     private synchronized boolean deliverable() { return opened && !closing && !stopped; }
@@ -105,6 +136,7 @@ public final class OkHttpWssTransport implements HgTransport {
             }
         } catch(InterruptedException e) { Thread.currentThread().interrupt(); }
         catch(IOException | RuntimeException e) { finish(true); }
+        finally { workerRetired(); }
     }
     @Override public boolean send(String text) {
         byte[] payload;
@@ -147,8 +179,13 @@ public final class OkHttpWssTransport implements HgTransport {
             if(closeDeadline!=null) closeDeadline.cancel(false);
             writes.clear(); if(writer!=null) writer.interrupt();
         }
-        connection.close();
-        if(target!=null) { if(failure) target.onFailure(); else target.onClosed(); }
+        try {
+            connection.close();
+            if(target!=null) { if(failure) target.onFailure(); else target.onClosed(); }
+        } finally {
+            synchronized(this) { cleanupComplete=true; }
+            notifyRetirement();
+        }
     }
     @Override public void cancel() {
         synchronized(this) {
@@ -158,6 +195,10 @@ public final class OkHttpWssTransport implements HgTransport {
             if(closeDeadline!=null) closeDeadline.cancel(false);
             if(writer!=null) writer.interrupt();
         }
-        connection.close();
+        try { connection.close(); }
+        finally {
+            synchronized(this) { cleanupComplete=true; }
+            notifyRetirement();
+        }
     }
 }
