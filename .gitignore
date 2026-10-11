@@ -1,0 +1,10 @@
+.gradle/
+.tooling/
+local.properties
+**/build/
+*.jks
+*.keystore
+.env
+.env.*
+.engram/*.jsonl
+.DS_Store
