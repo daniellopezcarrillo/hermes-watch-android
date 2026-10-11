@@ -7,4 +7,8 @@ android {
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     lint { abortOnError true; warningsAsErrors true }
 }
-dependencies { testImplementation 'junit:junit:4.13.2' }
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    // Android supplies org.json at runtime; JVM tests require its real implementation.
+    testImplementation 'org.json:json:20240303'
+}
