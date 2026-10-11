@@ -32,6 +32,8 @@ public final class HgSession {
         this.clock=Objects.requireNonNull(clock); this.observer=Objects.requireNonNull(observer);
     }
     public synchronized State state() { return state; }
+    /** Whether this session still owns a text request, including before turn.start. */
+    public synchronized boolean hasPendingRequest() { return requestId != null; }
     public synchronized void connect(String url, boolean explicitlyEnroll) {
         if (state != State.NEW) throw new IllegalStateException("Single-use session");
         PrivateWssEndpoint.validate(url);
