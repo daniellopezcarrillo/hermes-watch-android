@@ -27,5 +27,16 @@ Unit tests, Android lint and APK compilation are separate gates from real watch 
 ## Security
 Keep server/provider credentials off the watch. Limit the future gateway to private connectivity and authenticated device access. Never publish keys, signing material or real connection tokens. The diagnostic URL probe does not enroll a device or prove Hermes integration.
 
+## Build
+Install JDK 17 and Android SDK platform 35/build-tools 35.0.0. Set `JAVA_HOME` and `ANDROID_HOME`, then run:
+
+```sh
+./scripts/verify.sh --console=plain
+```
+
+This runs JVM tests, Android lint and debug APK compilation. Output: `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions performs the same gates and uploads a diagnostic APK artifact. Debug signing is for testing only, not a production distribution identity.
+
 ## Status
-Project initialization in progress. Build instructions and verified results will be recorded after the build toolchain is exercised. No live Hermes gateway configuration has been changed.
+Diagnostic 0.1.0 builds successfully. Verified: 23 JVM tests with zero failures/errors/skips; Android lint with no issues; APK package `com.klywo.hermeswatch`, minSdk 26, targetSdk 35. Independent specification and code-quality/security reviews approved the implementation. Physical watch and emulator execution remain pending; see [device validation](docs/device-validation.md). No live Hermes gateway configuration has been changed.
+
+The Activity recreation admission defect was fixed with a process-wide lease that is released only after worker/resource retirement. Unit tests validate admission/state policies; native lifecycle race conclusions still require device evidence.
