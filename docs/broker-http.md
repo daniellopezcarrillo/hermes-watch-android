@@ -42,6 +42,11 @@ The adapter exposes these **local unprefixed** paths:
   binding because those fields must be signed.
 - `/authenticate`: `{device_id, nonce, mac}` -> own `capability`, `expires_at`.
   Nonces last 30 seconds and are single-use; start capabilities last 60 seconds.
+- Every emitted `expires_at` (challenge, capability, reservation, answer) is
+  **integral** epoch seconds: the core floors its monotonic clock so the value
+  round-trips exactly through a strict client integer parse and never extends a
+  deadline. Signing the challenge therefore never depends on a float that could be
+  silently truncated by the client.
 - `/sessions`: `{request_id}` with start capability -> `session_id`, `expires_at`,
   own `session_capability`. Core idempotency and admission apply unchanged.
 - `/sessions/{id}/offer`: `{sdp}` or `{request_id, sdp}` with session capability ->
@@ -108,6 +113,7 @@ Run from the repository root, without external packages:
 ```sh
 python3 -m unittest discover -s testsbroker -v
 python3 -O -m unittest discover -s testsbroker -v
+python3 tests/liveinterop/live_interop_fixture.py
 ```
 
 `testsbroker/test_http.py` uses real ephemeral loopback sockets, random temporary

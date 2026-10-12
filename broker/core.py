@@ -37,6 +37,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import threading
 import time
@@ -46,6 +47,20 @@ def device_id(key):
     if not isinstance(key, bytes) or len(key) != 32:
         raise ValueError('invalid device key')
     return 'hg-' + hashlib.sha256(key).hexdigest()[:16]
+
+
+def integral_expiry(now, seconds):
+    """Integral monotonic epoch seconds for every emitted ``expires_at``.
+
+    The broker clock is a monotonic float; a float expiry serialized as JSON
+    (``expires_at``: ``123486.789``) cannot round-trip through a strict client
+    integer parse and would silently change the signed canonical message.
+    Flooring ``now`` is deliberately fail-closed: the advertised integer expiry
+    never outlives the intended monotonic deadline, so sub-second rounding can
+    never extend a nonce or capability lifetime, and the value is a stable,
+    non-decreasing function of the clock.
+    """
+    return math.floor(now) + seconds
 
 
 class Admission:
@@ -198,7 +213,7 @@ class Broker:
                 return Response(429, {'error': 'auth_rate_limited'})
             nonce = secrets.token_urlsafe(32)
             body = dict(version=1, audience='codex-live-broker/v1', device_id=device,
-                        nonce=nonce, expires_at=now + 30, scope='live:start',
+                        nonce=nonce, expires_at=integral_expiry(now, 30), scope='live:start',
                         owner=principal[1], profile=principal[2], hermes_session=principal[3])
             self.nonces[nonce] = (body, principal)
             return Response(200, dict(body))
@@ -207,9 +222,10 @@ class Broker:
         with self.lock:
             if self._shutdown:
                 return Response(503, {'error': 'shutdown'})
+            now = self.clock()
             item = self.nonces.pop(nonce, None) if isinstance(nonce, str) else None
             principal = self._approved(device)
-            if not item or not principal or item[1] != principal or item[0]['expires_at'] <= self.clock():
+            if not item or not principal or item[1] != principal or item[0]['expires_at'] <= now:
                 return Response(401, {'error': 'unauthorized'})
             try:
                 supplied = base64.b64decode(mac, validate=True) if isinstance(mac, str) and len(mac) == 44 else b''
@@ -219,8 +235,8 @@ class Broker:
                 return Response(401, {'error': 'unauthorized'})
             if not hmac.compare_digest(expected, supplied):
                 return Response(401, {'error': 'unauthorized'})
-            token = self._cap(principal, 'live:start', None, self.clock() + 60)
-            return Response(200, dict(capability=token, expires_at=self.clock() + 60))
+            token = self._cap(principal, 'live:start', None, now + 60)
+            return Response(200, dict(capability=token, expires_at=integral_expiry(now, 60)))
 
     def _rate(self, key, maximum):
         now = self.clock()
@@ -272,11 +288,12 @@ class Broker:
             if not self.admission.acquire(principal, sid):
                 return Response(409, {'error': 'busy'})
             now = self.clock()
+            expiry = integral_expiry(now, 120)
             cap = self._cap(principal, 'live:session', sid, now + 120)
-            self.sessions[sid] = dict(principal=principal, state='RESERVED', expiry=now + 120,
+            self.sessions[sid] = dict(principal=principal, state='RESERVED', expiry=expiry,
                                      deadline=now + 15, generation=secrets.token_hex(16),
                                      allocated=False, worker=False, events=[], event_bytes=0)
-            body = dict(session_id=sid, expires_at=now + 120, session_capability=cap)
+            body = dict(session_id=sid, expires_at=expiry, session_capability=cap)
             self.replays[digest] = (request_id, dict(body))
             self.requests[request_key] = (principal, dict(body))
             return Response(201, body)
